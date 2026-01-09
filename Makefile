@@ -8,4 +8,7 @@ stop:
 
 
 build:
-	docker builder build --file Dockerfile --tag quickshare .
+	docker builder build --file Dockerfile --tag antoniofernandodj/quickshare:latest .
+
+push:
+	docker push antoniofernandodj/quickshare:latest
