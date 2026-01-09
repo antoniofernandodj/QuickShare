@@ -1,0 +1,10 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: file_upload_api
+    restart: unless-stopped
+    network_mode: host
+    env_file:
+      - ./.env
