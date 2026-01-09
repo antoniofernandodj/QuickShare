@@ -1,3 +1,169 @@
+////// Arquivo: ./src/routes.rs
+use axum::{Router, extract::DefaultBodyLimit, routing::{get, post}};
+use tower_http::cors::{Any, CorsLayer};
+use crate::{handlers, models::AppState};
+
+
+pub fn get_router(state: AppState, limit_size: usize) -> Router {
+
+    let cors = CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods(Any)
+        .allow_headers(Any);
+
+    let router = Router::new()
+        .route("/upload", post(handlers::upload_file))
+        .route("/download/:file_id", get(handlers::download_file))
+        .route("/download/", get(handlers::list_files))
+        .layer(DefaultBodyLimit::max(limit_size)) // 100MB
+        .with_state(state)
+        .layer(cors);
+
+    router
+}
+
+
+////// Arquivo: ./src/models.rs
+use bson::doc;
+use axum::{http::StatusCode, response::{IntoResponse, Response}, Json};
+use mongodb::{Database, gridfs::GridFsBucket,};
+use serde::Serialize;
+
+
+#[derive(Clone)]
+pub struct AppState {
+    pub db: Database,
+    pub fs: GridFsBucket,
+}
+
+impl AppState {
+    pub fn new(db: Database, fs: GridFsBucket) -> Self {
+        AppState { db, fs }
+    }
+}
+
+
+#[derive(Serialize)]
+pub struct UploadResponse {
+    pub file_id: String,
+    pub download_url: String,
+    pub expires_at: String,
+}
+
+#[derive(Serialize)]
+pub struct ErrorResponse {
+    pub detail: String,
+}
+
+pub enum AppError {
+    InvalidObjectId,
+    FileNotFound,
+    UploadError(String),
+    DatabaseError(String),
+}
+
+impl IntoResponse for AppError {
+    fn into_response(self) -> Response {
+        let (status, message): (StatusCode, String) = match self {
+            AppError::InvalidObjectId =>
+                (StatusCode::BAD_REQUEST, "ID inválido".to_string()),
+            AppError::FileNotFound =>
+                (StatusCode::NOT_FOUND, "Arquivo não encontrado ou expirado".to_string()),
+            AppError::UploadError(msg) =>
+                (StatusCode::INTERNAL_SERVER_ERROR, msg),
+            AppError::DatabaseError(msg) =>
+                (StatusCode::INTERNAL_SERVER_ERROR, msg),
+        };
+
+        (status, Json(ErrorResponse { detail: message })).into_response()
+    }
+}
+
+
+#[derive(Serialize)]
+pub struct FileInfo {
+    pub _id: String,
+    pub filename: String,
+    pub expire_at: String,
+}
+
+////// Arquivo: ./src/main.rs
+mod routes;
+mod handlers;
+mod models;
+mod database;
+
+use std::env;
+
+use axum::Router;
+use mongodb::{Database, GridFsBucket};
+use tokio::net::TcpListener;
+use crate::{
+    database::get_db,
+    models::AppState,
+    routes::get_router
+};
+
+
+#[tokio::main]
+async fn main() {
+    let db: Database = get_db("files_db").await;
+    let fs: GridFsBucket = db.gridfs_bucket(None);
+
+    handlers::create_ttl_index(&db).await;
+
+    let state: AppState = AppState::new(db, fs);
+    const SIZE_100_MB: usize = 100 * 1024 * 1024;
+    let router: Router = get_router(state, SIZE_100_MB);
+    let port = env::var("PORT")
+        .unwrap_or(String::from("7777"));
+
+    let addr = format!("0.0.0.0:{}", port);
+    let listener: TcpListener =
+        TcpListener::bind(&addr)
+        .await
+        .unwrap();
+
+    println!("Servidor rodando em {}", &addr);
+
+    axum::serve(listener, router).await.unwrap();
+}
+
+
+////// Arquivo: ./src/database.rs
+use dotenvy::dotenv;
+use std::env;
+use mongodb::{Client, Database, options::ClientOptions, Collection};
+
+
+pub async fn get_db(database_name: &str) -> Database {
+    dotenv().ok();
+
+    let mongo_uri = env::var("MONGO_URI")
+        .expect("MONGO_URI não definida");
+
+    let client_options =
+        ClientOptions::parse(mongo_uri)
+            .await
+            .expect("Falha ao parsear URI do MongoDB");
+
+    let client =
+        Client::with_options(client_options)
+            .expect("Falha ao criar cliente MongoDB");
+
+    let db = client.database(database_name);
+
+    db
+}
+
+
+pub fn get_collection(db: &Database) -> Collection<bson::Document> {
+    let col: Collection<bson::Document> = db.collection::<bson::Document>("fs.files");
+
+    col
+}
+
+////// Arquivo: ./src/handlers.rs
 use axum::{
     extract::{Multipart, Path, State},
     http::StatusCode,
@@ -217,3 +383,7 @@ pub async fn list_files(State(state): State<AppState>) -> Result<Json<Vec<FileIn
 
     Ok(Json(files))
 }
+
+////// Arquivo: ./saida.rs
+
+

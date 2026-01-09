@@ -10,6 +10,12 @@ pub struct AppState {
     pub fs: GridFsBucket,
 }
 
+impl AppState {
+    pub fn new(db: Database, fs: GridFsBucket) -> Self {
+        AppState { db, fs }
+    }
+}
+
 
 #[derive(Serialize)]
 pub struct UploadResponse {
@@ -45,4 +51,12 @@ impl IntoResponse for AppError {
 
         (status, Json(ErrorResponse { detail: message })).into_response()
     }
+}
+
+
+#[derive(Serialize)]
+pub struct FileInfo {
+    pub _id: String,
+    pub filename: String,
+    pub expire_at: String,
 }

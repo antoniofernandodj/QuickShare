@@ -3,6 +3,8 @@ mod handlers;
 mod models;
 mod database;
 
+use std::env;
+
 use axum::Router;
 use mongodb::{Database, GridFsBucket};
 use tokio::net::TcpListener;
@@ -20,16 +22,19 @@ async fn main() {
 
     handlers::create_ttl_index(&db).await;
 
-    let state: AppState = AppState { db, fs };
+    let state: AppState = AppState::new(db, fs);
     const SIZE_100_MB: usize = 100 * 1024 * 1024;
     let router: Router = get_router(state, SIZE_100_MB);
+    let port = env::var("PORT")
+        .unwrap_or(String::from("7777"));
 
+    let addr = format!("0.0.0.0:{}", port);
     let listener: TcpListener =
-        TcpListener::bind("0.0.0.0:8000")
+        TcpListener::bind(&addr)
         .await
         .unwrap();
 
-    println!("Servidor rodando em http://0.0.0.0:8000");
+    println!("Servidor rodando em {}", &addr);
 
     axum::serve(listener, router).await.unwrap();
 }

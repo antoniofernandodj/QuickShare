@@ -13,6 +13,7 @@ pub fn get_router(state: AppState, limit_size: usize) -> Router {
     let router = Router::new()
         .route("/upload", post(handlers::upload_file))
         .route("/download/:file_id", get(handlers::download_file))
+        .route("/download/", get(handlers::list_files))
         .layer(DefaultBodyLimit::max(limit_size)) // 100MB
         .with_state(state)
         .layer(cors);
